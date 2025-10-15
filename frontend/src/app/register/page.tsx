@@ -11,7 +11,6 @@ import { useAuthStore } from '@/store/authStore';
 
 const registerSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
-  username: z.string().min(3, 'Username must be at least 3 characters'),
   firstName: z.string().min(2, 'First name must be at least 2 characters'),
   lastName: z.string().min(2, 'Last name must be at least 2 characters'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
@@ -44,7 +43,6 @@ export default function RegisterPage() {
     try {
       const registerData = {
         email: data.email,
-        username: data.username,
         firstName: data.firstName,
         lastName: data.lastName,
         password: data.password,
@@ -119,21 +117,6 @@ export default function RegisterPage() {
             )}
           </div>
 
-          <div>
-            <label htmlFor="username" className="block text-sm font-semibold mb-2 text-gray-900">
-              Username
-            </label>
-            <input
-              id="username"
-              type="text"
-              {...register('username')}
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 text-base"
-              placeholder="johndoe"
-            />
-            {errors.username && (
-              <p className="mt-2 text-sm text-red-600 font-medium">{errors.username.message}</p>
-            )}
-          </div>
 
           <div>
             <label htmlFor="password" className="block text-sm font-semibold mb-2 text-gray-900">

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { virocService } from '@/services/virocService';
 import { formService } from '@/services/formService';
+import { calculationService, CalculationResponse } from '@/services/calculationService';
 import { VirocMapping } from '@/types/viroc';
 import {
   ArrowLeft,
@@ -16,6 +17,8 @@ import {
   Search,
   Calendar,
   FileText,
+  Calculator,
+  XCircle,
 } from 'lucide-react';
 
 function DataEntryContent() {
@@ -24,19 +27,22 @@ function DataEntryContent() {
   const [selectedMapping, setSelectedMapping] = useState<VirocMapping | null>(null);
   const [numerator, setNumerator] = useState('');
   const [denominator, setDenominator] = useState('');
-  const [entryDate, setEntryDate] = useState('');
+  const [entryDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [remarks, setRemarks] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
+  
+  // Calculation state
+  const [calculationResult, setCalculationResult] = useState<CalculationResponse['data'] | null>(null);
+  const [calculating, setCalculating] = useState(false);
+  const [calculationError, setCalculationError] = useState('');
+  const [isCalculated, setIsCalculated] = useState(false);
 
   useEffect(() => {
     fetchVirocMappings();
-    // Set today's date as default
-    const today = new Date().toISOString().split('T')[0];
-    setEntryDate(today);
   }, []);
 
   const fetchVirocMappings = async () => {
@@ -60,9 +66,66 @@ function DataEntryContent() {
       m.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Reset calculation when values change
+  const resetCalculation = () => {
+    setCalculationResult(null);
+    setCalculationError('');
+    setIsCalculated(false);
+  };
+
+  const handleCalculate = async () => {
+    if (!selectedMapping || !numerator || !denominator) {
+      setCalculationError('Please fill in all required fields before calculating');
+      return;
+    }
+
+    const num = parseFloat(numerator);
+    const den = parseFloat(denominator);
+
+    if (isNaN(num) || isNaN(den) || den === 0) {
+      setCalculationError('Please enter valid numbers. Denominator cannot be zero.');
+      return;
+    }
+
+    try {
+      setCalculating(true);
+      setCalculationError('');
+      setError('');
+
+      const response = await calculationService.calculateForm({
+        virocMappingId: selectedMapping.virocId,
+        numerator: num,
+        denominator: den,
+      });
+
+      setCalculationResult(response.data);
+      setIsCalculated(true);
+    } catch (err) {
+      const error = err as { response?: { data?: { message?: string } } };
+      setCalculationError(error.response?.data?.message || 'Failed to calculate result');
+    } finally {
+      setCalculating(false);
+    }
+  };
+
   const handleSubmit = async () => {
-    if (!selectedMapping || !numerator || !denominator || !entryDate) {
+    if (!selectedMapping || !numerator || !denominator) {
       setError('Please fill in all required fields');
+      return;
+    }
+
+    if (!isCalculated) {
+      setError('Please calculate the result before submitting');
+      return;
+    }
+
+    // Check if result is below non-compliant benchmark and remarks are required
+    if (calculationResult && 
+        calculationResult.calculatedPercentage !== null && 
+        calculationResult.nonCompliantBenchmark !== null &&
+        calculationResult.calculatedPercentage < calculationResult.nonCompliantBenchmark && 
+        !remarks.trim()) {
+      setError('Remarks are required when result is below the non-compliant benchmark. Please add remarks explaining the deviation.');
       return;
     }
 
@@ -109,10 +172,11 @@ function DataEntryContent() {
     setNumerator('');
     setDenominator('');
     setRemarks('');
-    const today = new Date().toISOString().split('T')[0];
-    setEntryDate(today);
     setError('');
     setSuccess(false);
+    setCalculationResult(null);
+    setCalculationError('');
+    setIsCalculated(false);
   };
 
   return (
@@ -232,6 +296,7 @@ function DataEntryContent() {
                   onChange={(e) => {
                     const mapping = virocMappings.find((m) => m.id === e.target.value);
                     setSelectedMapping(mapping || null);
+                    resetCalculation();
                   }}
                   className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base font-medium text-gray-900 bg-white hover:border-gray-400 transition cursor-pointer"
                 >
@@ -264,8 +329,8 @@ function DataEntryContent() {
                       <p className="text-blue-900">{selectedMapping.formulaType}</p>
                     </div>
                     <div>
-                      <p className="text-blue-700 font-medium">Acceptable Benchmark:</p>
-                      <p className="text-blue-900">≥ {selectedMapping.acceptableBenchmark}%</p>
+                      <p className="text-blue-700 font-medium">Non-Compliant Benchmark:</p>
+                      <p className="text-blue-900">≥ {selectedMapping.nonCompliantBenchmark}%</p>
                     </div>
                     <div className="col-span-2">
                       <p className="text-blue-700 font-medium">Numerator Field:</p>
@@ -288,7 +353,10 @@ function DataEntryContent() {
                   <input
                     type="number"
                     value={numerator}
-                    onChange={(e) => setNumerator(e.target.value)}
+                    onChange={(e) => {
+                      setNumerator(e.target.value);
+                      resetCalculation();
+                    }}
                     placeholder="Enter numerator value"
                     disabled={!selectedMapping}
                     className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base font-medium text-gray-900 bg-white placeholder:text-gray-400 hover:border-gray-400 transition disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-500"
@@ -301,7 +369,10 @@ function DataEntryContent() {
                   <input
                     type="number"
                     value={denominator}
-                    onChange={(e) => setDenominator(e.target.value)}
+                    onChange={(e) => {
+                      setDenominator(e.target.value);
+                      resetCalculation();
+                    }}
                     placeholder="Enter denominator value"
                     disabled={!selectedMapping}
                     className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base font-medium text-gray-900 bg-white placeholder:text-gray-400 hover:border-gray-400 transition disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-500"
@@ -319,37 +390,182 @@ function DataEntryContent() {
                   <input
                     type="date"
                     value={entryDate}
-                    onChange={(e) => setEntryDate(e.target.value)}
-                    disabled={!selectedMapping}
-                    className="w-full pl-10 pr-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base font-medium text-gray-900 bg-white hover:border-gray-400 transition disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-500"
+                    readOnly
+                    className="w-full pl-10 pr-4 py-3 border-2 border-gray-300 rounded-lg text-base font-medium text-gray-900 bg-gray-100 cursor-not-allowed"
                   />
                 </div>
+                <p className="mt-1 text-sm text-gray-600">
+                  Date is automatically set to today
+                </p>
               </div>
 
-              {/* Remarks */}
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Remarks (Optional)
-                </label>
-                <div className="relative">
-                  <FileText className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
-                  <textarea
-                    value={remarks}
-                    onChange={(e) => setRemarks(e.target.value)}
-                    placeholder="Add any additional remarks or notes..."
-                    disabled={!selectedMapping}
-                    rows={4}
-                    className="w-full pl-10 pr-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base text-gray-900 bg-white placeholder:text-gray-400 hover:border-gray-400 transition disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-500 resize-none"
-                  />
+              {/* Remarks - Only show after calculation */}
+              {calculationResult && (
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Remarks {(() => {
+                      const isBelowNonCompliant = calculationResult.calculatedPercentage !== null && 
+                        calculationResult.nonCompliantBenchmark !== null &&
+                        calculationResult.calculatedPercentage < calculationResult.nonCompliantBenchmark;
+                      return isBelowNonCompliant ? '*' : '(Optional)';
+                    })()}
+                  </label>
+                  <div className="relative">
+                    <FileText className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
+                    <textarea
+                      value={remarks}
+                      onChange={(e) => setRemarks(e.target.value)}
+                      placeholder={(() => {
+                        const isBelowNonCompliant = calculationResult.calculatedPercentage !== null && 
+                          calculationResult.nonCompliantBenchmark !== null &&
+                          calculationResult.calculatedPercentage < calculationResult.nonCompliantBenchmark;
+                        return isBelowNonCompliant
+                          ? "Remarks are required when result is below the non-compliant benchmark. Please explain the deviation..."
+                          : "Add any additional remarks or notes...";
+                      })()}
+                      disabled={!selectedMapping}
+                      rows={4}
+                      className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base text-gray-900 bg-white placeholder:text-gray-400 hover:border-gray-400 transition disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-500 resize-none ${
+                        (() => {
+                          const isBelowNonCompliant = calculationResult.calculatedPercentage !== null && 
+                            calculationResult.nonCompliantBenchmark !== null &&
+                            calculationResult.calculatedPercentage < calculationResult.nonCompliantBenchmark;
+                          return isBelowNonCompliant && !remarks.trim()
+                            ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
+                            : 'border-gray-300';
+                        })()
+                      }`}
+                    />
+                  </div>
+                  {(() => {
+                    const isBelowNonCompliant = calculationResult.calculatedPercentage !== null && 
+                      calculationResult.nonCompliantBenchmark !== null &&
+                      calculationResult.calculatedPercentage < calculationResult.nonCompliantBenchmark;
+                    return isBelowNonCompliant && (
+                      <p className="mt-1 text-sm text-red-600 font-medium">
+                        * Remarks are required when result is below the non-compliant benchmark
+                      </p>
+                    );
+                  })()}
                 </div>
-              </div>
+              )}
+
+              {/* Calculation Result Display */}
+              {calculationResult && (
+                <div className={`rounded-lg p-6 border-2 ${
+                  calculationResult.benchmarkStatus === 'COMPLIANT'
+                    ? 'bg-green-50 border-green-200'
+                    : calculationResult.benchmarkStatus === 'NON_COMPLIANT'
+                    ? 'bg-red-50 border-red-200'
+                    : 'bg-yellow-50 border-yellow-200'
+                }`}>
+                  <div className="flex items-start gap-4">
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                      calculationResult.benchmarkStatus === 'COMPLIANT'
+                        ? 'bg-green-500'
+                        : calculationResult.benchmarkStatus === 'NON_COMPLIANT'
+                        ? 'bg-red-500'
+                        : 'bg-yellow-500'
+                    }`}>
+                      {calculationResult.benchmarkStatus === 'COMPLIANT' ? (
+                        <CheckCircle className="w-7 h-7 text-white" />
+                      ) : calculationResult.benchmarkStatus === 'NON_COMPLIANT' ? (
+                        <XCircle className="w-7 h-7 text-white" />
+                      ) : (
+                        <AlertCircle className="w-7 h-7 text-white" />
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-bold text-gray-900 mb-2">
+                        Calculation Result
+                      </h3>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="font-semibold text-gray-700">Percentage:</span>
+                          <span className={`font-bold ${
+                            calculationResult.benchmarkStatus === 'COMPLIANT'
+                              ? 'text-green-700'
+                              : calculationResult.benchmarkStatus === 'NON_COMPLIANT'
+                              ? 'text-red-700'
+                              : 'text-yellow-700'
+                          }`}>
+                            {calculationResult.calculatedPercentage?.toFixed(2)}%
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="font-semibold text-gray-700">Non-Compliant Benchmark:</span>
+                          <span className="text-gray-700">
+                            ≥ {calculationResult.nonCompliantBenchmark}%
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="font-semibold text-gray-700">Status:</span>
+                          <span className={`font-semibold ${
+                            calculationResult.benchmarkStatus === 'COMPLIANT'
+                              ? 'text-green-700'
+                              : calculationResult.benchmarkStatus === 'NON_COMPLIANT'
+                              ? 'text-red-700'
+                              : 'text-yellow-700'
+                          }`}>
+                            {calculationResult.benchmarkStatus === 'COMPLIANT' ? 'COMPLIANT' : 
+                             calculationResult.benchmarkStatus === 'NON_COMPLIANT' ? 'NON-COMPLIANT' : 
+                             'NO BENCHMARK'}
+                          </span>
+                        </div>
+                        <div className="mt-3 p-3 bg-white rounded-lg border">
+                          <p className="text-sm font-medium text-gray-900">
+                            {calculationResult.message}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Calculation Error */}
+              {calculationError && (
+                <div className="bg-red-50 border-2 border-red-500 rounded-lg p-4 flex items-center gap-3">
+                  <AlertCircle className="w-6 h-6 text-red-600" />
+                  <p className="text-red-700">{calculationError}</p>
+                </div>
+              )}
 
               {/* Action Buttons */}
-              <div className="flex gap-4">
+              <div className="space-y-4">
+                {/* Calculate Button */}
+                <div className="flex gap-4">
+                  <button
+                    onClick={handleCalculate}
+                    disabled={!selectedMapping || !numerator || !denominator || calculating}
+                    className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
+                  >
+                    {calculating ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Calculating...
+                      </>
+                    ) : (
+                      <>
+                        <Calculator className="w-5 h-5" />
+                        Calculate Result
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={handleReset}
+                    disabled={calculating || submitting}
+                    className="px-6 py-3 border-2 border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Reset
+                  </button>
+                </div>
+
+                {/* Submit Button */}
                 <button
                   onClick={handleSubmit}
-                  disabled={!selectedMapping || !numerator || !denominator || !entryDate || submitting}
-                  className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
+                  disabled={!selectedMapping || !numerator || !denominator || !isCalculated || submitting}
+                  className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
                 >
                   {submitting ? (
                     <>
@@ -363,13 +579,12 @@ function DataEntryContent() {
                     </>
                   )}
                 </button>
-                <button
-                  onClick={handleReset}
-                  disabled={submitting}
-                  className="px-6 py-3 border-2 border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Reset
-                </button>
+                
+                {!isCalculated && (
+                  <p className="text-sm text-gray-600 text-center">
+                    Please calculate the result before submitting
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -384,10 +599,13 @@ function DataEntryContent() {
               <ol className="list-decimal list-inside space-y-1">
                 <li>Select a Viroc Mapping from the dropdown</li>
                 <li>Enter the numerator (A value) and denominator (B value)</li>
-                <li>Select the entry date (defaults to today)</li>
-                <li>Optionally add remarks</li>
-                <li>Click Submit Form to save your data</li>
+                <li>Click &quot;Calculate Result&quot; to preview the calculation and compliance status</li>
+                <li>If result is below the non-compliant benchmark, the remarks field will appear as mandatory</li>
+                <li>Click &quot;Submit Form&quot; to save your data</li>
               </ol>
+              <p className="mt-2 text-xs text-blue-700">
+                <strong>Note:</strong> Calculation is required before submission. Remarks are mandatory when result is below the non-compliant benchmark.
+              </p>
             </div>
           </div>
         </div>
