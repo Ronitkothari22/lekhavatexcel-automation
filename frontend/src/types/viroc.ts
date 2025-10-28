@@ -5,9 +5,11 @@ export interface VirocMapping {
   formulaType: string;
   numeratorField: string;
   denominatorField: string;
+  customFormula?: string | null; // For CUSTOM formula type
+  variableDescriptions?: Record<string, string> | null; // e.g., { "A": "Blood components used", "B": "Total products" }
   patientType: string;
-  acceptableBenchmark: number;
-  nonCompliantBenchmark: number;
+  acceptableBenchmark: number | null;
+  nonCompliantBenchmark: number | null;
   isActive: boolean;
 }
 

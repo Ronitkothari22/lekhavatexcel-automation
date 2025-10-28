@@ -13,6 +13,8 @@ export const formService = {
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
     search?: string;
+    dateFrom?: string;
+    dateTo?: string;
   }): Promise<FormSubmissionsListResponse> {
     const queryParams = new URLSearchParams();
     
@@ -21,9 +23,16 @@ export const formService = {
     if (params?.sortBy) queryParams.append('sortBy', params.sortBy);
     if (params?.sortOrder) queryParams.append('sortOrder', params.sortOrder);
     if (params?.search) queryParams.append('search', params.search);
+    if (params?.dateFrom) queryParams.append('dateFrom', params.dateFrom);
+    if (params?.dateTo) queryParams.append('dateTo', params.dateTo);
 
     const url = `/forms/my-submissions${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
     const response = await apiClient.get<FormSubmissionsListResponse>(url);
+    return response.data;
+  },
+
+  async getSubmissionById(id: string): Promise<FormSubmissionResponse> {
+    const response = await apiClient.get<FormSubmissionResponse>(`/forms/${id}`);
     return response.data;
   },
 

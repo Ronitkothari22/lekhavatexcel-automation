@@ -4,6 +4,7 @@ export interface FormSubmissionRequest {
   denominator: number;
   entryDate: string;
   remarks?: string;
+  customValues?: Record<string, number>; // For custom formulas
 }
 
 export interface FormSubmission {
@@ -13,6 +14,8 @@ export interface FormSubmission {
   numerator: number;
   denominator: number;
   percentage: number;
+  customValues?: Record<string, number> | null; // For custom formulas
+  customPercentage?: number | null; // Calculated from custom formula
   responsibility: string;
   monthlyReportingBy: string;
   acceptableBenchmark: string;
@@ -23,6 +26,7 @@ export interface FormSubmission {
   remarks: string | null;
   entryDate: string;
   entryMonth: number;
+  opdIpd?: string; // IPD or OPD
   status?: string;
   submittedAt: string | null;
   approvedAt: string | null;
@@ -41,6 +45,9 @@ export interface FormSubmission {
   virocMapping: {
     virocId: string;
     name: string;
+    formulaType?: string;
+    customFormula?: string | null;
+    variableDescriptions?: Record<string, string> | null;
   };
   approvedBy?: {
     id: string;

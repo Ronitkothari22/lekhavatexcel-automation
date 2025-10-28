@@ -19,6 +19,11 @@ import {
   FileText,
   Calculator,
   XCircle,
+  HelpCircle,
+  ChevronDown,
+  ChevronUp,
+  Lightbulb,
+  Info,
 } from 'lucide-react';
 
 function DataEntryContent() {
@@ -27,6 +32,7 @@ function DataEntryContent() {
   const [selectedMapping, setSelectedMapping] = useState<VirocMapping | null>(null);
   const [numerator, setNumerator] = useState('');
   const [denominator, setDenominator] = useState('');
+  const [customValues, setCustomValues] = useState<Record<string, string>>({}); // For custom formulas
   const [entryDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [remarks, setRemarks] = useState('');
   const [loading, setLoading] = useState(true);
@@ -40,6 +46,12 @@ function DataEntryContent() {
   const [calculating, setCalculating] = useState(false);
   const [calculationError, setCalculationError] = useState('');
   const [isCalculated, setIsCalculated] = useState(false);
+
+  // Help section state
+  const [isHelpExpanded, setIsHelpExpanded] = useState(false);
+
+  // Check if selected mapping uses custom formula
+  const isCustomFormula = selectedMapping?.formulaType === 'CUSTOM';
 
   useEffect(() => {
     fetchVirocMappings();
@@ -74,17 +86,47 @@ function DataEntryContent() {
   };
 
   const handleCalculate = async () => {
-    if (!selectedMapping || !numerator || !denominator) {
-      setCalculationError('Please fill in all required fields before calculating');
+    if (!selectedMapping) {
+      setCalculationError('Please select a Viroc mapping');
       return;
     }
 
-    const num = parseFloat(numerator);
-    const den = parseFloat(denominator);
+    // Validate inputs based on formula type
+    if (isCustomFormula) {
+      // For custom formulas, check if all variables are filled
+      const requiredVariables = selectedMapping.variableDescriptions ? Object.keys(selectedMapping.variableDescriptions) : [];
+      const missingVariables = requiredVariables.filter(v => !customValues[v] || customValues[v].trim() === '');
+      
+      if (missingVariables.length > 0) {
+        setCalculationError(`Please fill in all custom formula variables: ${missingVariables.join(', ')}`);
+        return;
+      }
 
-    if (isNaN(num) || isNaN(den) || den === 0) {
-      setCalculationError('Please enter valid numbers. Denominator cannot be zero.');
-      return;
+      // Validate all values are numbers
+      const invalidVariables = requiredVariables.filter(v => isNaN(parseFloat(customValues[v])));
+      if (invalidVariables.length > 0) {
+        setCalculationError(`Please enter valid numbers for: ${invalidVariables.join(', ')}`);
+        return;
+      }
+    } else {
+      // For standard formulas, check numerator and denominator
+      if (!numerator || !denominator) {
+        setCalculationError('Please fill in all required fields before calculating');
+        return;
+      }
+
+      const num = parseFloat(numerator);
+      const den = parseFloat(denominator);
+
+      if (isNaN(num) || isNaN(den)) {
+        setCalculationError('Please enter valid numbers.');
+        return;
+      }
+
+      if (den === 0) {
+        setCalculationError('Denominator cannot be zero.');
+        return;
+      }
     }
 
     try {
@@ -92,11 +134,25 @@ function DataEntryContent() {
       setCalculationError('');
       setError('');
 
-      const response = await calculationService.calculateForm({
+      const requestData: {
+        virocMappingId: string;
+        numerator: number;
+        denominator: number;
+        customValues?: Record<string, number>;
+      } = {
         virocMappingId: selectedMapping.virocId,
-        numerator: num,
-        denominator: den,
-      });
+        numerator: isCustomFormula ? 0 : parseFloat(numerator),
+        denominator: isCustomFormula ? 0 : parseFloat(denominator),
+      };
+
+      if (isCustomFormula) {
+        requestData.customValues = Object.entries(customValues).reduce((acc, [key, value]) => {
+          acc[key] = parseFloat(value);
+          return acc;
+        }, {} as Record<string, number>);
+      }
+
+      const response = await calculationService.calculateForm(requestData);
 
       setCalculationResult(response.data);
       setIsCalculated(true);
@@ -109,9 +165,30 @@ function DataEntryContent() {
   };
 
   const handleSubmit = async () => {
-    if (!selectedMapping || !numerator || !denominator) {
-      setError('Please fill in all required fields');
+    if (!selectedMapping) {
+      setError('Please select a Viroc mapping');
       return;
+    }
+
+    // Validate based on formula type
+    if (isCustomFormula) {
+      if (!selectedMapping.variableDescriptions) {
+        setError('Custom formula configuration is missing. Please contact support.');
+        return;
+      }
+      
+      const requiredVariables = Object.keys(selectedMapping.variableDescriptions);
+      const missingVariables = requiredVariables.filter(v => !customValues[v] || customValues[v].trim() === '');
+      
+      if (missingVariables.length > 0) {
+        setError(`Please fill in all custom formula variables: ${missingVariables.join(', ')}`);
+        return;
+      }
+    } else {
+      if (!numerator || !denominator) {
+        setError('Please fill in all required fields');
+        return;
+      }
     }
 
     if (!isCalculated) {
@@ -129,26 +206,34 @@ function DataEntryContent() {
       return;
     }
 
-    const num = parseFloat(numerator);
-    const den = parseFloat(denominator);
-
-    if (isNaN(num) || isNaN(den) || den === 0) {
-      setError('Please enter valid numbers. Denominator cannot be zero.');
-      return;
-    }
-
     try {
       setSubmitting(true);
       setError('');
       setSuccess(false);
 
-      await formService.submitForm({
+      const submissionData: {
+        virocMappingId: string;
+        numerator: number;
+        denominator: number;
+        entryDate: string;
+        remarks?: string;
+        customValues?: Record<string, number>;
+      } = {
         virocMappingId: selectedMapping.virocId,
-        numerator: num,
-        denominator: den,
+        numerator: isCustomFormula ? 0 : parseFloat(numerator),
+        denominator: isCustomFormula ? 0 : parseFloat(denominator),
         entryDate,
         remarks: remarks || undefined,
-      });
+      };
+
+      if (isCustomFormula) {
+        submissionData.customValues = Object.entries(customValues).reduce((acc, [key, value]) => {
+          acc[key] = parseFloat(value);
+          return acc;
+        }, {} as Record<string, number>);
+      }
+
+      await formService.submitForm(submissionData);
 
       setSuccess(true);
       // Scroll to top to show success message
@@ -171,6 +256,7 @@ function DataEntryContent() {
     setSelectedMapping(null);
     setNumerator('');
     setDenominator('');
+    setCustomValues({});
     setRemarks('');
     setError('');
     setSuccess(false);
@@ -296,6 +382,7 @@ function DataEntryContent() {
                   onChange={(e) => {
                     const mapping = virocMappings.find((m) => m.id === e.target.value);
                     setSelectedMapping(mapping || null);
+                    setCustomValues({}); // Reset custom values
                     resetCalculation();
                   }}
                   className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base font-medium text-gray-900 bg-white hover:border-gray-400 transition cursor-pointer"
@@ -328,57 +415,120 @@ function DataEntryContent() {
                       <p className="text-blue-700 font-medium">Formula Type:</p>
                       <p className="text-blue-900">{selectedMapping.formulaType}</p>
                     </div>
-                    <div>
-                      <p className="text-blue-700 font-medium">Non-Compliant Benchmark:</p>
-                      <p className="text-blue-900">≥ {selectedMapping.nonCompliantBenchmark}%</p>
-                    </div>
-                    <div className="col-span-2">
-                      <p className="text-blue-700 font-medium">Numerator Field:</p>
-                      <p className="text-blue-900 text-xs">{selectedMapping.numeratorField}</p>
-                    </div>
-                    <div className="col-span-2">
-                      <p className="text-blue-700 font-medium">Denominator Field:</p>
-                      <p className="text-blue-900 text-xs">{selectedMapping.denominatorField}</p>
-                    </div>
+                    {selectedMapping.nonCompliantBenchmark !== null && (
+                      <div>
+                        <p className="text-blue-700 font-medium">Non-Compliant Benchmark:</p>
+                        <p className="text-blue-900">≥ {selectedMapping.nonCompliantBenchmark}%</p>
+                      </div>
+                    )}
+                    {isCustomFormula && selectedMapping.customFormula ? (
+                      <>
+                        <div className="col-span-2">
+                          <p className="text-blue-700 font-medium">Custom Formula:</p>
+                          <p className="text-blue-900 font-mono text-xs bg-white px-2 py-1 rounded">
+                            {selectedMapping.customFormula}
+                          </p>
+                        </div>
+                        {selectedMapping.variableDescriptions && (
+                          <div className="col-span-2">
+                            <p className="text-blue-700 font-medium mb-2">Variable Descriptions:</p>
+                            <div className="space-y-1">
+                              {Object.entries(selectedMapping.variableDescriptions).map(([key, desc]) => (
+                                <p key={key} className="text-blue-900 text-xs">
+                                  <span className="font-bold">{key}:</span> {desc}
+                                </p>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div className="col-span-2">
+                          <p className="text-blue-700 font-medium">Numerator Field:</p>
+                          <p className="text-blue-900 text-xs">{selectedMapping.numeratorField}</p>
+                        </div>
+                        <div className="col-span-2">
+                          <p className="text-blue-700 font-medium">Denominator Field:</p>
+                          <p className="text-blue-900 text-xs">{selectedMapping.denominatorField}</p>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
 
               {/* Data Input */}
-              <div className="grid grid-cols-2 gap-6">
+              {isCustomFormula && selectedMapping?.variableDescriptions ? (
+                /* Custom Formula Inputs */
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Numerator (A Value) *
-                  </label>
-                  <input
-                    type="number"
-                    value={numerator}
-                    onChange={(e) => {
-                      setNumerator(e.target.value);
-                      resetCalculation();
-                    }}
-                    placeholder="Enter numerator value"
-                    disabled={!selectedMapping}
-                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base font-medium text-gray-900 bg-white placeholder:text-gray-400 hover:border-gray-400 transition disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-500"
-                  />
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">
+                    Custom Formula Values *
+                  </h3>
+                  {selectedMapping.customFormula && (
+                    <p className="text-sm text-gray-600 mb-3">
+                      Formula: <span className="font-mono text-blue-700">{selectedMapping.customFormula}</span>
+                    </p>
+                  )}
+                  <div className="grid grid-cols-2 gap-6">
+                    {Object.entries(selectedMapping.variableDescriptions).map(([variable, description]) => (
+                      <div key={variable}>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">
+                          Variable {variable} *
+                        </label>
+                        <input
+                          type="number"
+                          value={customValues[variable] || ''}
+                          onChange={(e) => {
+                            setCustomValues((prev) => ({ ...prev, [variable]: e.target.value }));
+                            resetCalculation();
+                          }}
+                          placeholder={description}
+                          disabled={!selectedMapping}
+                          className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base font-medium text-gray-900 bg-white placeholder:text-gray-400 hover:border-gray-400 transition disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-500"
+                        />
+                        <p className="mt-1 text-xs text-gray-600">{description}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Denominator (B Value) *
-                  </label>
-                  <input
-                    type="number"
-                    value={denominator}
-                    onChange={(e) => {
-                      setDenominator(e.target.value);
-                      resetCalculation();
-                    }}
-                    placeholder="Enter denominator value"
-                    disabled={!selectedMapping}
-                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base font-medium text-gray-900 bg-white placeholder:text-gray-400 hover:border-gray-400 transition disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-500"
-                  />
+              ) : (
+                /* Standard Formula Inputs */
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Numerator (A Value) *
+                    </label>
+                    <input
+                      type="number"
+                      value={numerator}
+                      onChange={(e) => {
+                        setNumerator(e.target.value);
+                        resetCalculation();
+                      }}
+                      placeholder="Enter numerator value"
+                      disabled={!selectedMapping}
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base font-medium text-gray-900 bg-white placeholder:text-gray-400 hover:border-gray-400 transition disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Denominator (B Value) *
+                    </label>
+                    <input
+                      type="number"
+                      value={denominator}
+                      onChange={(e) => {
+                        setDenominator(e.target.value);
+                        resetCalculation();
+                      }}
+                      placeholder="Enter denominator value"
+                      disabled={!selectedMapping}
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base font-medium text-gray-900 bg-white placeholder:text-gray-400 hover:border-gray-400 transition disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-500"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Entry Date */}
               <div>
@@ -537,7 +687,14 @@ function DataEntryContent() {
                 <div className="flex gap-4">
                   <button
                     onClick={handleCalculate}
-                    disabled={!selectedMapping || !numerator || !denominator || calculating}
+                    disabled={
+                      !selectedMapping || 
+                      calculating ||
+                      (isCustomFormula 
+                        ? !selectedMapping?.variableDescriptions || Object.keys(selectedMapping.variableDescriptions).some(v => !customValues[v])
+                        : !numerator || !denominator
+                      )
+                    }
                     className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
                   >
                     {calculating ? (
@@ -564,7 +721,15 @@ function DataEntryContent() {
                 {/* Submit Button */}
                 <button
                   onClick={handleSubmit}
-                  disabled={!selectedMapping || !numerator || !denominator || !isCalculated || submitting}
+                  disabled={
+                    !selectedMapping || 
+                    !isCalculated || 
+                    submitting ||
+                    (isCustomFormula 
+                      ? !selectedMapping?.variableDescriptions || Object.keys(selectedMapping.variableDescriptions).some(v => !customValues[v])
+                      : !numerator || !denominator
+                    )
+                  }
                   className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
                 >
                   {submitting ? (
@@ -590,24 +755,224 @@ function DataEntryContent() {
           )}
         </div>
 
-        {/* Info Box */}
-        <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5" />
-            <div className="text-sm text-blue-900">
-              <p className="font-semibold mb-1">How to use:</p>
-              <ol className="list-decimal list-inside space-y-1">
-                <li>Select a Viroc Mapping from the dropdown</li>
-                <li>Enter the numerator (A value) and denominator (B value)</li>
-                <li>Click &quot;Calculate Result&quot; to preview the calculation and compliance status</li>
-                <li>If result is below the non-compliant benchmark, the remarks field will appear as mandatory</li>
-                <li>Click &quot;Submit Form&quot; to save your data</li>
-              </ol>
-              <p className="mt-2 text-xs text-blue-700">
-                <strong>Note:</strong> Calculation is required before submission. Remarks are mandatory when result is below the non-compliant benchmark.
-              </p>
+        {/* Help & Guide Section */}
+        <div className="mt-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl overflow-hidden shadow-sm">
+          {/* Header - Always Visible */}
+          <button
+            onClick={() => setIsHelpExpanded(!isHelpExpanded)}
+            className="w-full px-6 py-4 flex items-center justify-between hover:bg-blue-100 transition"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
+                <HelpCircle className="w-6 h-6 text-white" />
+              </div>
+              <div className="text-left">
+                <h3 className="text-lg font-bold text-blue-900">User Guide & Help</h3>
+                <p className="text-sm text-blue-700">Learn how to use the Data Entry Form</p>
+              </div>
             </div>
-          </div>
+            {isHelpExpanded ? (
+              <ChevronUp className="w-6 h-6 text-blue-600" />
+            ) : (
+              <ChevronDown className="w-6 h-6 text-blue-600" />
+            )}
+          </button>
+
+          {/* Expandable Content */}
+          {isHelpExpanded && (
+            <div className="px-6 pb-6 space-y-6 animate-in slide-in-from-top-5 fade-in duration-300">
+              {/* Quick Start */}
+              <div className="bg-white rounded-lg p-5 border border-blue-200">
+                <div className="flex items-start gap-3 mb-3">
+                  <Lightbulb className="w-5 h-5 text-yellow-600 mt-0.5 flex-shrink-0" />
+                  <h4 className="font-bold text-gray-900">Quick Start Guide</h4>
+                </div>
+                <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700 ml-8">
+                  <li className="pl-2">
+                    <strong>Select Quality Indicator:</strong> Choose a Viroc Mapping from the dropdown
+                    <span className="block text-xs text-gray-600 mt-1 ml-5">Use the search box to find specific indicators by ID or name</span>
+                  </li>
+                  <li className="pl-2">
+                    <strong>Review Mapping Details:</strong> Check the formula type and requirements
+                    <span className="block text-xs text-gray-600 mt-1 ml-5">The system will show either standard or custom formula inputs</span>
+                  </li>
+                  <li className="pl-2">
+                    <strong>Enter Values:</strong> Fill in the required data fields
+                    <span className="block text-xs text-gray-600 mt-1 ml-5">For standard formulas: numerator &amp; denominator | For custom: variable values</span>
+                  </li>
+                  <li className="pl-2">
+                    <strong>Calculate Result:</strong> Click &quot;Calculate Result&quot; button to preview
+                    <span className="block text-xs text-gray-600 mt-1 ml-5">Review the calculated percentage and compliance status before submitting</span>
+                  </li>
+                  <li className="pl-2">
+                    <strong>Add Remarks (if needed):</strong> Required for non-compliant results
+                    <span className="block text-xs text-gray-600 mt-1 ml-5">Explain any deviations or special circumstances</span>
+                  </li>
+                  <li className="pl-2">
+                    <strong>Submit Form:</strong> Click &quot;Submit Form&quot; to save your data
+                    <span className="block text-xs text-gray-600 mt-1 ml-5">Your submission will be saved and can be viewed in &quot;My Submissions&quot;</span>
+                  </li>
+                </ol>
+              </div>
+
+              {/* Formula Types */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Standard Formula */}
+                <div className="bg-white rounded-lg p-5 border border-green-200">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center">
+                      <Calculator className="w-4 h-4 text-white" />
+                    </div>
+                    <h4 className="font-bold text-gray-900">Standard Formula</h4>
+                  </div>
+                  <div className="space-y-2 text-sm text-gray-700">
+                    <p className="font-semibold text-green-700">Type: A_OVER_B</p>
+                    <p className="font-mono text-xs bg-green-50 px-2 py-1 rounded border border-green-200">
+                      Percentage = (Numerator / Denominator) × 100
+                    </p>
+                    <div className="mt-3 space-y-1">
+                      <p><strong>Example:</strong></p>
+                      <p className="text-xs">If Numerator = 95 and Denominator = 100</p>
+                      <p className="text-xs">Result = (95 / 100) × 100 = <span className="font-bold text-green-700">95%</span></p>
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-green-200">
+                      <p className="text-xs text-gray-600">
+                        <strong>Fields Required:</strong> Numerator (A) and Denominator (B)
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Custom Formula */}
+                <div className="bg-white rounded-lg p-5 border border-purple-200">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center">
+                      <Calculator className="w-4 h-4 text-white" />
+                    </div>
+                    <h4 className="font-bold text-gray-900">Custom Formula</h4>
+                  </div>
+                  <div className="space-y-2 text-sm text-gray-700">
+                    <p className="font-semibold text-purple-700">Type: CUSTOM</p>
+                    <p className="font-mono text-xs bg-purple-50 px-2 py-1 rounded border border-purple-200">
+                      Formula varies by indicator
+                    </p>
+                    <div className="mt-3 space-y-1">
+                      <p><strong>Example:</strong></p>
+                      <p className="text-xs font-mono">(A × C) / B × 100</p>
+                      <p className="text-xs">If A=50, B=10, C=2</p>
+                      <p className="text-xs">Result = (50 × 2) / 10 × 100 = <span className="font-bold text-purple-700">1000%</span></p>
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-purple-200">
+                      <p className="text-xs text-gray-600">
+                        <strong>Fields Required:</strong> Variable inputs (A, B, C, etc.) with descriptions
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Important Notes */}
+              <div className="bg-white rounded-lg p-5 border border-orange-200">
+                <div className="flex items-start gap-3 mb-3">
+                  <Info className="w-5 h-5 text-orange-600 mt-0.5 flex-shrink-0" />
+                  <h4 className="font-bold text-gray-900">Important Notes</h4>
+                </div>
+                <div className="space-y-3 text-sm text-gray-700">
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                    <p><strong>Calculation Required:</strong> You must calculate the result before submitting the form</p>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />
+                    <p><strong>Remarks Mandatory:</strong> If your result is below the non-compliant benchmark, you must add remarks explaining the deviation</p>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <Calendar className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <p><strong>Entry Date:</strong> Automatically set to today&apos;s date (cannot be changed)</p>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <FileText className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
+                    <p><strong>View Submissions:</strong> After submitting, view your data in &quot;My Submissions&quot; from the dashboard</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Compliance Status */}
+              <div className="bg-white rounded-lg p-5 border border-gray-200">
+                <h4 className="font-bold text-gray-900 mb-3">Understanding Compliance Status</h4>
+                <div className="space-y-3">
+                  <div className="flex items-start gap-3">
+                    <div className="w-12 h-12 bg-green-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <CheckCircle className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="text-sm">
+                      <p className="font-bold text-green-700">COMPLIANT</p>
+                      <p className="text-gray-600">Your result meets or exceeds the non-compliant benchmark threshold</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="w-12 h-12 bg-red-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <XCircle className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="text-sm">
+                      <p className="font-bold text-red-700">NON-COMPLIANT</p>
+                      <p className="text-gray-600">Your result is below the benchmark. Remarks are required to explain the deviation</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="w-12 h-12 bg-yellow-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <AlertCircle className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="text-sm">
+                      <p className="font-bold text-yellow-700">NO BENCHMARK</p>
+                      <p className="text-gray-600">This indicator doesn&apos;t have a defined benchmark. Your result is recorded as-is</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tips & Best Practices */}
+              <div className="bg-gradient-to-r from-indigo-50 to-blue-50 rounded-lg p-5 border border-indigo-200">
+                <h4 className="font-bold text-indigo-900 mb-3 flex items-center gap-2">
+                  <Lightbulb className="w-5 h-5" />
+                  Tips &amp; Best Practices
+                </h4>
+                <ul className="space-y-2 text-sm text-gray-700">
+                  <li className="flex items-start gap-2">
+                    <span className="text-indigo-600 font-bold">•</span>
+                    <span>Use the <strong>search box</strong> to quickly find specific quality indicators</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-indigo-600 font-bold">•</span>
+                    <span>Check the <strong>Viroc Mapping Reference</strong> page to browse all available indicators</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-indigo-600 font-bold">•</span>
+                    <span>Always <strong>calculate first</strong> to verify your result before submitting</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-indigo-600 font-bold">•</span>
+                    <span>For <strong>custom formulas</strong>, read the variable descriptions carefully to enter correct values</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-indigo-600 font-bold">•</span>
+                    <span>Add <strong>detailed remarks</strong> for non-compliant results to help with review process</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-indigo-600 font-bold">•</span>
+                    <span>Use the <strong>Reset button</strong> to clear the form and start over if needed</span>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Need More Help */}
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200 text-center">
+                <p className="text-sm text-gray-600">
+                  Need more help? Contact your system administrator or quality management team.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </div>

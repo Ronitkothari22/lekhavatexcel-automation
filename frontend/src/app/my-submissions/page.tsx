@@ -228,12 +228,26 @@ function MySubmissionsContent() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm">
-                          <p className="text-gray-900">
-                            <span className="font-semibold">N:</span> {submission.numerator}
-                          </p>
-                          <p className="text-gray-900">
-                            <span className="font-semibold">D:</span> {submission.denominator}
-                          </p>
+                          {submission.customValues ? (
+                            /* Display custom formula values */
+                            <div className="space-y-1">
+                              {Object.entries(submission.customValues).map(([key, value]) => (
+                                <p key={key} className="text-gray-900">
+                                  <span className="font-semibold">{key}:</span> {value}
+                                </p>
+                              ))}
+                            </div>
+                          ) : (
+                            /* Display standard numerator/denominator */
+                            <>
+                              <p className="text-gray-900">
+                                <span className="font-semibold">N:</span> {submission.numerator}
+                              </p>
+                              <p className="text-gray-900">
+                                <span className="font-semibold">D:</span> {submission.denominator}
+                              </p>
+                            </>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">

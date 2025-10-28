@@ -4,6 +4,7 @@ export interface CalculationRequest {
   virocMappingId: string;
   numerator: number;
   denominator: number;
+  customValues?: Record<string, number>; // For custom formulas
 }
 
 export interface CalculationResponse {

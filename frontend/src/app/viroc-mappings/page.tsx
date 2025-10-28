@@ -28,16 +28,20 @@ function VirocMappingsContent() {
   const limit = 20;
 
   // Function to display formula based on formula type
-  const getFormulaDisplay = (formulaType: string): string => {
-    switch (formulaType) {
+  const getFormulaDisplay = (mapping: VirocMapping): string => {
+    if (mapping.formulaType === 'CUSTOM' && mapping.customFormula) {
+      return mapping.customFormula;
+    }
+    
+    switch (mapping.formulaType) {
       case 'A_OVER_B':
-        return 'A = (A/B) × 100';
+        return '(A/B) × 100';
       case 'B_OVER_A':
-        return 'A = (B/A) × 100';
+        return '(B/A) × 100';
       case 'DIRECT':
-        return 'A = Direct Value';
+        return 'Direct Value';
       default:
-        return formulaType;
+        return mapping.formulaType;
     }
   };
 
@@ -180,14 +184,26 @@ function VirocMappingsContent() {
                             {mapping.name}
                           </p>
                           <div className="mt-2 space-y-1">
-                            <p className="text-xs text-gray-600">
-                              <span className="font-semibold">Numerator:</span>{' '}
-                              {mapping.numeratorField}
-                            </p>
-                            <p className="text-xs text-gray-600">
-                              <span className="font-semibold">Denominator:</span>{' '}
-                              {mapping.denominatorField}
-                            </p>
+                            {mapping.formulaType === 'CUSTOM' && mapping.variableDescriptions ? (
+                              /* Show custom variable descriptions */
+                              Object.entries(mapping.variableDescriptions).map(([key, desc]) => (
+                                <p key={key} className="text-xs text-gray-600">
+                                  <span className="font-semibold">{key}:</span> {desc}
+                                </p>
+                              ))
+                            ) : (
+                              /* Show standard numerator/denominator */
+                              <>
+                                <p className="text-xs text-gray-600">
+                                  <span className="font-semibold">Numerator:</span>{' '}
+                                  {mapping.numeratorField}
+                                </p>
+                                <p className="text-xs text-gray-600">
+                                  <span className="font-semibold">Denominator:</span>{' '}
+                                  {mapping.denominatorField}
+                                </p>
+                              </>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -199,7 +215,7 @@ function VirocMappingsContent() {
                       <td className="px-6 py-4">
                         <div className="space-y-1">
                           <p className="text-sm font-mono font-semibold text-blue-700">
-                            {getFormulaDisplay(mapping.formulaType)}
+                            {getFormulaDisplay(mapping)}
                           </p>
                           <span className="inline-block px-2 py-0.5 bg-blue-100 text-blue-800 text-xs font-semibold rounded">
                             {mapping.formulaType}
@@ -208,12 +224,20 @@ function VirocMappingsContent() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-sm">
-                          <p className="text-green-700 font-semibold">
-                            ≥ {mapping.acceptableBenchmark}%
-                          </p>
-                          <p className="text-red-700 text-xs">
-                            &lt; {mapping.nonCompliantBenchmark}%
-                          </p>
+                          {mapping.acceptableBenchmark !== null ? (
+                            <>
+                              <p className="text-green-700 font-semibold">
+                                ≥ {mapping.acceptableBenchmark}%
+                              </p>
+                              {mapping.nonCompliantBenchmark !== null && (
+                                <p className="text-red-700 text-xs">
+                                  &lt; {mapping.nonCompliantBenchmark}%
+                                </p>
+                              )}
+                            </>
+                          ) : (
+                            <p className="text-gray-500 text-xs italic">No benchmark set</p>
+                          )}
                         </div>
                       </td>
                     </tr>
